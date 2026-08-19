@@ -1,0 +1,28 @@
+{
+    "model": "XGBRegressor",
+    "dataset": "NASA C-MAPSS FD001",
+    "training_engines": 80,
+    "validation_engines": 20,
+    "training_rows": 16527,
+    "validation_rows": 4104,
+    "feature_count": 128,
+    "parameters": {
+        "n_estimators": 1000,
+        "learning_rate": 0.03,
+        "max_depth": 6,
+        "min_child_weight": 3,
+        "subsample": 0.8,
+        "colsample_bytree": 0.8,
+        "reg_alpha": 0.05,
+        "reg_lambda": 1.0
+    },
+    "metrics": {
+        "MAE": 7.457237243652344,
+        "RMSE": 11.193292748394885,
+        "R2": 0.9279149174690247,
+        "NASA_score": 7794.787039631602,
+        "training_time_seconds": 15.031223500001943,
+        "validation_inference_seconds": 0.029512499997508712,
+        "samples_per_second": 139059.72046917197
+    }
+}
