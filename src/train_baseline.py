@@ -1,34 +1,34 @@
 import json
 import time
-
 import joblib
 import numpy as np
 import pandas as pd
 
 from sklearn.ensemble import RandomForestRegressor
-from sklearn.impute import SimpleImputer
 from sklearn.metrics import (
     mean_absolute_error,
     mean_squared_error,
     r2_score,
 )
-from sklearn.model_selection import ParameterGrid
+from sklearn.model_selection import (
+    GroupShuffleSplit,
+    ParameterGrid,
+)
 from sklearn.pipeline import Pipeline
 
 from src.config import (
     PROCESSED_DATA_DIR,
     MODEL_DIR,
     METRIC_DIR,
-    RANDOM_STATE,
     create_directories,
 )
 
 
-# ---------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------
+# ============================================================
+# CONFIGURATION
+# ============================================================
 
-FEATURE_FILE = (
+INPUT_FILE = (
     PROCESSED_DATA_DIR
     / "train_features.csv"
 )
@@ -43,20 +43,14 @@ METRICS_FILE = (
     / "random_forest_metrics.json"
 )
 
+RANDOM_STATE = 42
 
-TARGET = "RUL"
-
-# Columns that must never be used as model features.
-EXCLUDED_COLUMNS = {
-    "unit",
-    "cycle",
-    "RUL",
-}
+VALIDATION_SIZE = 0.20
 
 
-# ---------------------------------------------------------
-# NASA C-MAPSS scoring function
-# ---------------------------------------------------------
+# ============================================================
+# NASA C-MAPSS SCORE
+# ============================================================
 
 def nasa_score(
     y_true,
@@ -65,16 +59,8 @@ def nasa_score(
     """
     NASA C-MAPSS asymmetric scoring function.
 
-    Early predictions are penalized differently
-    from late predictions.
-
-    d = prediction - actual
-
-    d < 0:
-        model predicted too little RUL
-
-    d > 0:
-        model predicted too much RUL
+    Under-prediction and over-prediction receive
+    different penalties.
     """
 
     errors = (
@@ -104,137 +90,273 @@ def nasa_score(
     return float(score)
 
 
-# ---------------------------------------------------------
-# Metrics
-# ---------------------------------------------------------
+# ============================================================
+# LOAD DATA
+# ============================================================
 
-def calculate_metrics(
-    y_true,
-    y_pred,
-):
+def load_data():
 
-    mae = mean_absolute_error(
-        y_true,
-        y_pred,
+    df = pd.read_csv(
+        INPUT_FILE
     )
 
-    rmse = np.sqrt(
-        mean_squared_error(
-            y_true,
-            y_pred,
-        )
-    )
-
-    r2 = r2_score(
-        y_true,
-        y_pred,
-    )
-
-    score = nasa_score(
-        y_true,
-        y_pred,
-    )
-
-    return {
-        "MAE": float(mae),
-        "RMSE": float(rmse),
-        "R2": float(r2),
-        "NASA_score": float(score),
-    }
+    return df
 
 
-# ---------------------------------------------------------
-# Engine-level split
-# ---------------------------------------------------------
+# ============================================================
+# TRAIN / VALIDATION SPLIT
+# ============================================================
 
 def split_by_engine(
     df,
-    validation_fraction=0.2,
 ):
+    """
+    Split by engine ID rather than by individual rows.
 
-    engines = (
-        df["unit"]
-        .unique()
+    This is critical because each engine contributes many
+    time-series observations.
+    """
+
+    splitter = GroupShuffleSplit(
+        n_splits=1,
+        test_size=VALIDATION_SIZE,
+        random_state=RANDOM_STATE,
     )
 
-    rng = np.random.default_rng(
-        RANDOM_STATE
-    )
+    groups = df["unit"]
 
-    rng.shuffle(engines)
-
-    split_index = int(
-        len(engines)
-        * (1 - validation_fraction)
-    )
-
-    train_engines = engines[
-        :split_index
-    ]
-
-    validation_engines = engines[
-        split_index:
-    ]
-
-    train_df = df[
-        df["unit"].isin(
-            train_engines
+    train_idx, val_idx = next(
+        splitter.split(
+            df,
+            groups=groups,
         )
-    ].copy()
+    )
 
-    validation_df = df[
-        df["unit"].isin(
-            validation_engines
-        )
-    ].copy()
+    train_df = (
+        df.iloc[train_idx]
+        .copy()
+    )
+
+    val_df = (
+        df.iloc[val_idx]
+        .copy()
+    )
 
     return (
         train_df,
-        validation_df,
-        train_engines,
-        validation_engines,
+        val_df,
     )
 
 
-# ---------------------------------------------------------
-# Feature preparation
-# ---------------------------------------------------------
+# ============================================================
+# PREPARE FEATURES
+# ============================================================
 
-def prepare_features(df):
+def prepare_data(
+    train_df,
+    val_df,
+):
+    """
+    Remove identifiers and target from the feature matrix.
+    """
+
+    excluded = [
+        "unit",
+        "cycle",
+        "RUL",
+    ]
 
     feature_columns = [
         column
-        for column in df.columns
-        if column not in EXCLUDED_COLUMNS
+        for column in train_df.columns
+        if column not in excluded
     ]
 
-    X = df[
-        feature_columns
-    ].copy()
+    X_train = (
+        train_df[
+            feature_columns
+        ]
+        .copy()
+    )
 
-    y = df[
-        TARGET
-    ].copy()
+    y_train = (
+        train_df["RUL"]
+        .to_numpy()
+    )
+
+    X_val = (
+        val_df[
+            feature_columns
+        ]
+        .copy()
+    )
+
+    y_val = (
+        val_df["RUL"]
+        .to_numpy()
+    )
 
     return (
-        X,
-        y,
+        X_train,
+        y_train,
+        X_val,
+        y_val,
         feature_columns,
     )
 
 
-# ---------------------------------------------------------
-# Hyperparameter tuning
-# ---------------------------------------------------------
+# ============================================================
+# MODEL EVALUATION
+# ============================================================
 
-def tune_random_forest(
-    X_train,
-    y_train,
-    X_validation,
-    y_validation,
+def evaluate_model(
+    model,
+    X_val,
+    y_val,
 ):
+    """
+    Evaluate a trained model using MAE, RMSE,
+    R² and NASA score.
+    """
 
-    parameter_grid = {
+    predictions = (
+        model.predict(
+            X_val
+        )
+    )
+
+    mae = mean_absolute_error(
+        y_val,
+        predictions,
+    )
+
+    rmse = np.sqrt(
+        mean_squared_error(
+            y_val,
+            predictions,
+        )
+    )
+
+    r2 = r2_score(
+        y_val,
+        predictions,
+    )
+
+    nasa = nasa_score(
+        y_val,
+        predictions,
+    )
+
+    return {
+        "mae": float(mae),
+        "rmse": float(rmse),
+        "r2": float(r2),
+        "nasa_score": float(nasa),
+    }
+
+
+# ============================================================
+# MAIN
+# ============================================================
+
+def main():
+
+    create_directories()
+
+    print("=" * 70)
+    print(
+        "RANDOM FOREST RUL BASELINE"
+    )
+    print("=" * 70)
+
+    # ========================================================
+    # LOAD
+    # ========================================================
+
+    df = load_data()
+
+    print(
+        f"\nDataset rows: "
+        f"{len(df):,}"
+    )
+
+    print(
+        f"Total engines: "
+        f"{df['unit'].nunique()}"
+    )
+
+    # ========================================================
+    # VERIFY TRUNCATED DATASET
+    # ========================================================
+
+    if len(df) < 50000:
+
+        raise ValueError(
+            "The dataset appears to be the old "
+            "non-truncated dataset. Run "
+            "`python -m src.preprocessing` first."
+        )
+
+    print(
+        "\nTraining on truncated trajectories."
+    )
+
+    # ========================================================
+    # ENGINE-LEVEL SPLIT
+    # ========================================================
+
+    (
+        train_df,
+        val_df,
+    ) = split_by_engine(
+        df
+    )
+
+    print(
+        f"\nTraining engines: "
+        f"{train_df['unit'].nunique()}"
+    )
+
+    print(
+        f"Validation engines: "
+        f"{val_df['unit'].nunique()}"
+    )
+
+    print(
+        f"Training rows: "
+        f"{len(train_df):,}"
+    )
+
+    print(
+        f"Validation rows: "
+        f"{len(val_df):,}"
+    )
+
+    # ========================================================
+    # PREPARE DATA
+    # ========================================================
+
+    (
+        X_train,
+        y_train,
+        X_val,
+        y_val,
+        feature_columns,
+    ) = prepare_data(
+        train_df,
+        val_df,
+    )
+
+    print(
+        f"\nNumber of features: "
+        f"{len(feature_columns)}"
+    )
+
+    # ========================================================
+    # HYPERPARAMETER GRID
+    # ========================================================
+
+    param_grid = {
 
         "model__n_estimators": [
             100,
@@ -259,67 +381,67 @@ def tune_random_forest(
         ],
     }
 
-    combinations = list(
+    configurations = list(
         ParameterGrid(
-            parameter_grid
+            param_grid
         )
     )
 
     print(
         f"\nTesting "
-        f"{len(combinations)} "
+        f"{len(configurations)} "
         f"hyperparameter configurations..."
     )
 
-    best_pipeline = None
-    best_metrics = None
-    best_params = None
+    # ========================================================
+    # SEARCH
+    # ========================================================
 
-    best_mae = float(
+    best_score = float(
         "inf"
     )
 
+    best_result = None
+    best_pipeline = None
+
     for index, params in enumerate(
-        combinations,
+        configurations,
         start=1,
     ):
 
         print(
-            f"\n[{index}/{len(combinations)}]"
+            f"\n[{index}/{len(configurations)}]"
         )
 
         print(
             f"Parameters: {params}"
         )
 
+        # ----------------------------------------------------
+        # Pipeline
+        # ----------------------------------------------------
+
         pipeline = Pipeline(
             steps=[
-                (
-                    "imputer",
-                    SimpleImputer(
-                        strategy="median"
-                    ),
-                ),
-
                 (
                     "model",
                     RandomForestRegressor(
                         random_state=RANDOM_STATE,
                         n_jobs=-1,
-                        **{
-                            key.replace(
-                                "model__",
-                                ""
-                            ): value
-                            for key, value
-                            in params.items()
-                        },
                     ),
-                ),
+                )
             ]
         )
 
-        start = time.perf_counter()
+        pipeline.set_params(
+            **params
+        )
+
+        # ----------------------------------------------------
+        # Train
+        # ----------------------------------------------------
+
+        start_time = time.time()
 
         pipeline.fit(
             X_train,
@@ -327,296 +449,249 @@ def tune_random_forest(
         )
 
         training_time = (
-            time.perf_counter()
-            - start
+            time.time()
+            - start_time
         )
 
-        start = time.perf_counter()
+        # ----------------------------------------------------
+        # Evaluate
+        # ----------------------------------------------------
 
-        predictions = pipeline.predict(
-            X_validation
-        )
-
-        inference_time = (
-            time.perf_counter()
-            - start
-        )
-
-        current_metrics = calculate_metrics(
-            y_validation,
-            predictions,
-        )
-
-        current_metrics[
-            "training_time_seconds"
-        ] = float(
-            training_time
-        )
-
-        current_metrics[
-            "validation_inference_seconds"
-        ] = float(
-            inference_time
+        metrics = evaluate_model(
+            pipeline,
+            X_val,
+            y_val,
         )
 
         print(
             f"MAE: "
-            f"{current_metrics['MAE']:.4f}"
+            f"{metrics['mae']:.4f}"
         )
 
         print(
             f"RMSE: "
-            f"{current_metrics['RMSE']:.4f}"
+            f"{metrics['rmse']:.4f}"
         )
 
         print(
             f"R²: "
-            f"{current_metrics['R2']:.4f}"
+            f"{metrics['r2']:.4f}"
         )
 
         print(
             f"NASA Score: "
-            f"{current_metrics['NASA_score']:.2f}"
+            f"{metrics['nasa_score']:.2f}"
         )
 
-        # Lower MAE is better.
+        print(
+            f"Training time: "
+            f"{training_time:.2f}s"
+        )
+
+        # ----------------------------------------------------
+        # Select best model
+        #
+        # NASA score is the primary metric because it is
+        # specifically designed for C-MAPSS RUL prediction.
+        # ----------------------------------------------------
+
         if (
-            current_metrics["MAE"]
-            < best_mae
+            metrics["nasa_score"]
+            < best_score
         ):
 
-            best_mae = (
-                current_metrics["MAE"]
+            best_score = (
+                metrics["nasa_score"]
             )
+
+            best_result = {
+                "parameters": params,
+                "metrics": metrics,
+                "training_time": (
+                    training_time
+                ),
+            }
 
             best_pipeline = pipeline
 
-            best_metrics = (
-                current_metrics
+            print(
+                "✓ New best model"
             )
 
-            best_params = params
-
-    return (
-        best_pipeline,
-        best_metrics,
-        best_params,
-    )
-
-
-# ---------------------------------------------------------
-# Main
-# ---------------------------------------------------------
-
-def main():
-
-    create_directories()
-
-    print("=" * 70)
-    print("RANDOM FOREST RUL BASELINE")
-    print("=" * 70)
-
-    # -----------------------------------------------------
-    # Load
-    # -----------------------------------------------------
-
-    df = pd.read_csv(
-        FEATURE_FILE
-    )
-
-    print(
-        f"\nDataset rows: "
-        f"{len(df):,}"
-    )
-
-    print(
-        f"Total engines: "
-        f"{df['unit'].nunique()}"
-    )
-
-    # -----------------------------------------------------
-    # Split by engine
-    # -----------------------------------------------------
-
-    (
-        train_df,
-        validation_df,
-        train_engines,
-        validation_engines,
-    ) = split_by_engine(
-        df
-    )
-
-    print(
-        f"\nTraining engines: "
-        f"{len(train_engines)}"
-    )
-
-    print(
-        f"Validation engines: "
-        f"{len(validation_engines)}"
-    )
-
-    print(
-        f"Training rows: "
-        f"{len(train_df):,}"
-    )
-
-    print(
-        f"Validation rows: "
-        f"{len(validation_df):,}"
-    )
-
-    # -----------------------------------------------------
-    # Features
-    # -----------------------------------------------------
-
-    (
-        X_train,
-        y_train,
-        feature_columns,
-    ) = prepare_features(
-        train_df
-    )
-
-    (
-        X_validation,
-        y_validation,
-        _,
-    ) = prepare_features(
-        validation_df
-    )
-
-    print(
-        f"\nNumber of features: "
-        f"{len(feature_columns)}"
-    )
-
-    # -----------------------------------------------------
-    # Train / tune
-    # -----------------------------------------------------
-
-    (
-        best_model,
-        best_metrics,
-        best_params,
-    ) = tune_random_forest(
-        X_train,
-        y_train,
-        X_validation,
-        y_validation,
-    )
-
-    # -----------------------------------------------------
-    # Save model
-    # -----------------------------------------------------
-
-    joblib.dump(
-        {
-            "model": best_model,
-            "features": feature_columns,
-        },
-        MODEL_FILE,
-    )
-
-    # -----------------------------------------------------
-    # Save metrics
-    # -----------------------------------------------------
-
-    results = {
-
-        "model": "RandomForestRegressor",
-
-        "dataset": "NASA C-MAPSS FD001",
-
-        "training_engines": int(
-            len(train_engines)
-        ),
-
-        "validation_engines": int(
-            len(validation_engines)
-        ),
-
-        "training_rows": int(
-            len(train_df)
-        ),
-
-        "validation_rows": int(
-            len(validation_df)
-        ),
-
-        "feature_count": int(
-            len(feature_columns)
-        ),
-
-        "best_parameters": best_params,
-
-        "metrics": best_metrics,
-    }
-
-    with open(
-        METRICS_FILE,
-        "w",
-    ) as file:
-
-        json.dump(
-            results,
-            file,
-            indent=4,
-        )
-
-    # -----------------------------------------------------
-    # Final output
-    # -----------------------------------------------------
+    # ========================================================
+    # BEST RESULT
+    # ========================================================
 
     print("\n")
+
     print("=" * 70)
-    print("BEST RANDOM FOREST RESULT")
+    print(
+        "BEST RANDOM FOREST RESULT"
+    )
     print("=" * 70)
 
     print(
         f"MAE: "
-        f"{best_metrics['MAE']:.4f}"
+        f"{best_result['metrics']['mae']:.4f}"
     )
 
     print(
         f"RMSE: "
-        f"{best_metrics['RMSE']:.4f}"
+        f"{best_result['metrics']['rmse']:.4f}"
     )
 
     print(
         f"R²: "
-        f"{best_metrics['R2']:.4f}"
+        f"{best_result['metrics']['r2']:.4f}"
     )
 
     print(
         f"NASA Score: "
-        f"{best_metrics['NASA_score']:.2f}"
+        f"{best_result['metrics']['nasa_score']:.2f}"
     )
 
     print(
-        f"\nBest parameters:"
+        "\nBest parameters:"
     )
 
     for key, value in (
-        best_params.items()
+        best_result[
+            "parameters"
+        ].items()
     ):
 
         print(
             f"  {key}: {value}"
         )
 
-    print(
-        f"\nModel saved to:"
-        f"\n{MODEL_FILE}"
+    # ========================================================
+    # SAVE MODEL
+    # ========================================================
+
+    checkpoint = {
+        "model":
+            best_pipeline,
+
+        "features":
+            feature_columns,
+
+        "training_type":
+            "truncated_trajectories",
+
+        "rul_cap":
+            125,
+
+        "random_state":
+            RANDOM_STATE,
+    }
+
+    joblib.dump(
+        checkpoint,
+        MODEL_FILE,
     )
 
     print(
-        f"\nMetrics saved to:"
-        f"\n{METRICS_FILE}"
+        "\nModel saved to:"
     )
 
+    print(
+        MODEL_FILE
+    )
+
+    # ========================================================
+    # SAVE METRICS
+    # ========================================================
+
+    metrics_output = {
+
+        "dataset":
+            "NASA C-MAPSS FD001",
+
+        "training_strategy":
+            "truncated_trajectories",
+
+        "training_engines":
+            int(
+                train_df["unit"]
+                .nunique()
+            ),
+
+        "validation_engines":
+            int(
+                val_df["unit"]
+                .nunique()
+            ),
+
+        "training_rows":
+            int(
+                len(train_df)
+            ),
+
+        "validation_rows":
+            int(
+                len(val_df)
+            ),
+
+        "features":
+            int(
+                len(feature_columns)
+            ),
+
+        "best_parameters":
+            best_result[
+                "parameters"
+            ],
+
+        "MAE":
+            best_result[
+                "metrics"
+            ]["mae"],
+
+        "RMSE":
+            best_result[
+                "metrics"
+            ]["rmse"],
+
+        "R2":
+            best_result[
+                "metrics"
+            ]["r2"],
+
+        "NASA_score":
+            best_result[
+                "metrics"
+            ]["nasa_score"],
+
+        "training_time":
+            best_result[
+                "training_time"
+            ],
+    }
+
+    with open(
+        METRICS_FILE,
+        "w",
+        encoding="utf-8",
+    ) as f:
+
+        json.dump(
+            metrics_output,
+            f,
+            indent=4,
+        )
+
+    print(
+        "\nMetrics saved to:"
+    )
+
+    print(
+        METRICS_FILE
+    )
+
+
+# ============================================================
+# ENTRY POINT
+# ============================================================
 
 if __name__ == "__main__":
-
     main()

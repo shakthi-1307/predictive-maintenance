@@ -1,0 +1,10 @@
+{
+    "dataset": "NASA C-MAPSS FD001",
+    "evaluation": "Official test set",
+    "engines": 100,
+    "features": 128,
+    "MAE": 57.500567159013265,
+    "RMSE": 67.14079731027141,
+    "R2": -1.6104383697871283,
+    "NASA_score": 84541.03648034176
+}

@@ -1,0 +1,82 @@
+[
+    {
+        "feature": "cycle_ratio",
+        "mean_abs_shap": 29.44312665575123
+    },
+    {
+        "feature": "s4_rolling_mean_10",
+        "mean_abs_shap": 3.2210898458767097
+    },
+    {
+        "feature": "s4_rolling_mean_5",
+        "mean_abs_shap": 0.8998126929792202
+    },
+    {
+        "feature": "s11_rolling_mean_10",
+        "mean_abs_shap": 0.6921856156228916
+    },
+    {
+        "feature": "sensor_mean",
+        "mean_abs_shap": 0.6207641066491053
+    },
+    {
+        "feature": "s9_rolling_std_20",
+        "mean_abs_shap": 0.5411569641110158
+    },
+    {
+        "feature": "s14_rolling_mean_20",
+        "mean_abs_shap": 0.395190831684579
+    },
+    {
+        "feature": "s9_rolling_mean_20",
+        "mean_abs_shap": 0.38842076781627893
+    },
+    {
+        "feature": "s11_rolling_mean_5",
+        "mean_abs_shap": 0.36076269185792187
+    },
+    {
+        "feature": "s15_rolling_mean_10",
+        "mean_abs_shap": 0.24879673489431073
+    },
+    {
+        "feature": "s3_rolling_mean_10",
+        "mean_abs_shap": 0.22746245061223394
+    },
+    {
+        "feature": "s2_rolling_mean_10",
+        "mean_abs_shap": 0.2214350528740201
+    },
+    {
+        "feature": "s20_rolling_mean_20",
+        "mean_abs_shap": 0.21623214936284485
+    },
+    {
+        "feature": "s4_rolling_std_20",
+        "mean_abs_shap": 0.19915606570353608
+    },
+    {
+        "feature": "s14_rolling_std_20",
+        "mean_abs_shap": 0.19392513640642656
+    },
+    {
+        "feature": "s7_rolling_std_20",
+        "mean_abs_shap": 0.18963517077631084
+    },
+    {
+        "feature": "s17_rolling_mean_20",
+        "mean_abs_shap": 0.1768177382983379
+    },
+    {
+        "feature": "s11_rolling_std_20",
+        "mean_abs_shap": 0.17347016191361006
+    },
+    {
+        "feature": "s15_rolling_mean_20",
+        "mean_abs_shap": 0.16742081304942288
+    },
+    {
+        "feature": "s11_rolling_mean_20",
+        "mean_abs_shap": 0.16478836618931442
+    }
+]
