@@ -13,6 +13,7 @@ from src.config import (
     RAW_DATA_DIR,
     MODEL_DIR,
     METRIC_DIR,
+    ALL_COLUMNS,
     create_directories,
 )
 
@@ -51,35 +52,10 @@ PREDICTIONS_FILE = (
 # ============================================================
 # DATASET COLUMNS
 # ============================================================
+#
+# Single source of truth in src/config.py.
 
-COLUMNS = [
-    "unit",
-    "cycle",
-    "setting_1",
-    "setting_2",
-    "setting_3",
-    "s1",
-    "s2",
-    "s3",
-    "s4",
-    "s5",
-    "s6",
-    "s7",
-    "s8",
-    "s9",
-    "s10",
-    "s11",
-    "s12",
-    "s13",
-    "s14",
-    "s15",
-    "s16",
-    "s17",
-    "s18",
-    "s19",
-    "s20",
-    "s21",
-]
+COLUMNS = ALL_COLUMNS
 
 
 # ============================================================

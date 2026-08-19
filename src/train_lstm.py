@@ -19,6 +19,7 @@ from src.config import (
     MODEL_DIR,
     METRIC_DIR,
     RANDOM_STATE,
+    DEFAULT_USEFUL_SENSORS,
     create_directories,
 )
 
@@ -68,24 +69,11 @@ NUM_LAYERS = 2
 DROPOUT = 0.2
 
 
-# These are the sensors identified during EDA
-# as useful degradation indicators.
+# The sensors identified during EDA as useful degradation
+# indicators. Single source of truth in src/config.py -- this list
+# used to be copied here and had drifted (s9 was missing).
 
-SENSOR_COLUMNS = [
-    "s2",
-    "s3",
-    "s4",
-    "s7",
-    "s8",
-    "s11",
-    "s12",
-    "s13",
-    "s14",
-    "s15",
-    "s17",
-    "s20",
-    "s21",
-]
+SENSOR_COLUMNS = DEFAULT_USEFUL_SENSORS
 
 
 # ============================================================
@@ -184,8 +172,10 @@ def split_by_engine(
     validation_fraction=0.2,
 ):
 
+    # Group on the physical engine, not the trajectory id, so that
+    # overlapping truncations of one engine cannot straddle the split.
     engines = (
-        df["unit"]
+        df["source_unit"]
         .unique()
     )
 
@@ -209,13 +199,13 @@ def split_by_engine(
     ]
 
     train_df = df[
-        df["unit"].isin(
+        df["source_unit"].isin(
             train_engines
         )
     ].copy()
 
     validation_df = df[
-        df["unit"].isin(
+        df["source_unit"].isin(
             validation_engines
         )
     ].copy()
@@ -497,9 +487,22 @@ def main():
         f"{len(df):,}"
     )
 
+    if "source_unit" not in df.columns:
+
+        raise ValueError(
+            "train_features.csv predates the truncated "
+            "pipeline. Run `python -m src.preprocessing` "
+            "and `python -m src.features` first."
+        )
+
     print(
-        f"Engines: "
+        f"Trajectories: "
         f"{df['unit'].nunique()}"
+    )
+
+    print(
+        f"Source engines: "
+        f"{df['source_unit'].nunique()}"
     )
 
     # --------------------------------------------------------
@@ -812,6 +815,13 @@ def main():
     # --------------------------------------------------------
     # Restore best model
     # --------------------------------------------------------
+
+    if best_state is None:
+
+        raise RuntimeError(
+            "No epoch produced a finite validation MAE, so "
+            "there is no best checkpoint to restore."
+        )
 
     model.load_state_dict(
         best_state

@@ -1,23 +1,20 @@
 {
-    "model": "RandomForestRegressor",
     "dataset": "NASA C-MAPSS FD001",
+    "training_strategy": "truncated_trajectories",
     "training_engines": 80,
     "validation_engines": 20,
-    "training_rows": 16527,
-    "validation_rows": 4104,
-    "feature_count": 128,
+    "training_rows": 66111,
+    "validation_rows": 16245,
+    "features": 128,
     "best_parameters": {
-        "model__max_depth": 10,
-        "model__max_features": 0.7,
-        "model__min_samples_leaf": 2,
+        "model__max_depth": null,
+        "model__max_features": "sqrt",
+        "model__min_samples_leaf": 1,
         "model__n_estimators": 100
     },
-    "metrics": {
-        "MAE": 7.176841792367081,
-        "RMSE": 11.06009572334817,
-        "R2": 0.929620319373322,
-        "NASA_score": 7555.90878898168,
-        "training_time_seconds": 20.48399690000224,
-        "validation_inference_seconds": 0.05162759999802802
-    }
+    "MAE": 7.8739698368728845,
+    "RMSE": 10.834619834684657,
+    "R2": 0.892290061972785,
+    "NASA_score": 29937.3386642146,
+    "training_time": 28.50775384902954
 }

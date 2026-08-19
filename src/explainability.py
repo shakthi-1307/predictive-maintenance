@@ -47,7 +47,7 @@ def main():
     )
 
     model_data = joblib.load(
-    MODEL_FILE
+        MODEL_FILE
     )
 
     print("\nLoaded model checkpoint:")
@@ -71,16 +71,24 @@ def main():
         "Underlying model:",
         type(model)
     )
-    excluded = {
-        "unit",
-        "cycle",
-        "RUL",
-    }
+    # Take the column list from the checkpoint rather than
+    # re-deriving it, so SHAP is guaranteed to line up with the
+    # matrix the model was actually fitted on.
+    feature_columns = model_data["features"]
 
-    feature_columns = [
-        c for c in df.columns
-        if c not in excluded
+    missing = [
+        column
+        for column in feature_columns
+        if column not in df.columns
     ]
+
+    if missing:
+
+        raise ValueError(
+            f"train_features.csv is missing columns the model "
+            f"was trained on: {missing}. Re-run "
+            f"`python -m src.features`."
+        )
 
     X = df[
         feature_columns

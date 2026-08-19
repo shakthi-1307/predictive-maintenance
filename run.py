@@ -6,12 +6,12 @@ STEPS = [
     [
         sys.executable,
         "-m",
-        "src.generate_data",
+        "src.validation",
     ],
     [
         sys.executable,
         "-m",
-        "src.validate_data",
+        "src.preprocessing",
     ],
     [
         sys.executable,
@@ -21,7 +21,12 @@ STEPS = [
     [
         sys.executable,
         "-m",
-        "src.train",
+        "src.train_baseline",
+    ],
+    [
+        sys.executable,
+        "-m",
+        "src.evaluate_test",
     ],
 ]
 

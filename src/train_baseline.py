@@ -20,6 +20,7 @@ from src.config import (
     PROCESSED_DATA_DIR,
     MODEL_DIR,
     METRIC_DIR,
+    NON_FEATURE_COLUMNS,
     create_directories,
 )
 
@@ -111,10 +112,13 @@ def split_by_engine(
     df,
 ):
     """
-    Split by engine ID rather than by individual rows.
+    Split by physical engine rather than by individual rows.
 
     This is critical because each engine contributes many
-    time-series observations.
+    time-series observations, and several truncated
+    trajectories that overlap heavily with one another.
+    Grouping on `source_unit` keeps every trajectory cut
+    from the same engine on the same side of the split.
     """
 
     splitter = GroupShuffleSplit(
@@ -123,7 +127,7 @@ def split_by_engine(
         random_state=RANDOM_STATE,
     )
 
-    groups = df["unit"]
+    groups = df["source_unit"]
 
     train_idx, val_idx = next(
         splitter.split(
@@ -160,16 +164,10 @@ def prepare_data(
     Remove identifiers and target from the feature matrix.
     """
 
-    excluded = [
-        "unit",
-        "cycle",
-        "RUL",
-    ]
-
     feature_columns = [
         column
         for column in train_df.columns
-        if column not in excluded
+        if column not in NON_FEATURE_COLUMNS
     ]
 
     X_train = (
@@ -280,22 +278,28 @@ def main():
         f"{len(df):,}"
     )
 
-    print(
-        f"Total engines: "
-        f"{df['unit'].nunique()}"
-    )
-
     # ========================================================
     # VERIFY TRUNCATED DATASET
     # ========================================================
 
-    if len(df) < 50000:
+    if "source_unit" not in df.columns:
 
         raise ValueError(
             "The dataset appears to be the old "
             "non-truncated dataset. Run "
-            "`python -m src.preprocessing` first."
+            "`python -m src.preprocessing` and "
+            "`python -m src.features` first."
         )
+
+    print(
+        f"Trajectories: "
+        f"{df['unit'].nunique()}"
+    )
+
+    print(
+        f"Source engines: "
+        f"{df['source_unit'].nunique()}"
+    )
 
     print(
         "\nTraining on truncated trajectories."
@@ -314,12 +318,12 @@ def main():
 
     print(
         f"\nTraining engines: "
-        f"{train_df['unit'].nunique()}"
+        f"{train_df['source_unit'].nunique()}"
     )
 
     print(
         f"Validation engines: "
-        f"{val_df['unit'].nunique()}"
+        f"{val_df['source_unit'].nunique()}"
     )
 
     print(
@@ -568,12 +572,30 @@ def main():
     # SAVE MODEL
     # ========================================================
 
+    # Per-feature training medians. The API is handed a single
+    # sensor reading and cannot compute every column the model was
+    # fitted on (the near-constant settings and dead sensors); it
+    # substitutes these instead of zeros, which for a column like
+    # setting_3 (always 100.0) would be far outside the training
+    # range.
+    feature_defaults = {
+        column: float(value)
+        for column, value in (
+            X_train
+            .median()
+            .items()
+        )
+    }
+
     checkpoint = {
         "model":
             best_pipeline,
 
         "features":
             feature_columns,
+
+        "feature_defaults":
+            feature_defaults,
 
         "training_type":
             "truncated_trajectories",
@@ -612,13 +634,13 @@ def main():
 
         "training_engines":
             int(
-                train_df["unit"]
+                train_df["source_unit"]
                 .nunique()
             ),
 
         "validation_engines":
             int(
-                val_df["unit"]
+                val_df["source_unit"]
                 .nunique()
             ),
 

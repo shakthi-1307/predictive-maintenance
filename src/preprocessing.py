@@ -4,6 +4,7 @@ import pandas as pd
 from src.config import (
     RAW_DATA_DIR,
     PROCESSED_DATA_DIR,
+    ALL_COLUMNS,
     create_directories,
 )
 
@@ -29,35 +30,10 @@ TRUNCATION_POINTS = [
 # ============================================================
 # DATASET COLUMNS
 # ============================================================
+#
+# Single source of truth in src/config.py.
 
-COLUMNS = [
-    "unit",
-    "cycle",
-    "setting_1",
-    "setting_2",
-    "setting_3",
-    "s1",
-    "s2",
-    "s3",
-    "s4",
-    "s5",
-    "s6",
-    "s7",
-    "s8",
-    "s9",
-    "s10",
-    "s11",
-    "s12",
-    "s13",
-    "s14",
-    "s15",
-    "s16",
-    "s17",
-    "s18",
-    "s19",
-    "s20",
-    "s21",
-]
+COLUMNS = ALL_COLUMNS
 
 
 # ============================================================
@@ -144,9 +120,21 @@ def create_truncated_examples(
 
     This prevents the model from learning that the last
     observed cycle necessarily means imminent failure.
+
+    Each truncated view gets its OWN `unit` id and keeps the
+    physical engine in `source_unit`.
+
+    The distinct id is what makes truncation do anything at all.
+    Every downstream "observation window" feature -- cycle_ratio and
+    the rolling statistics -- is computed per `unit`. If all five
+    truncations of an engine shared one id they would collapse back
+    into the full trajectory and the output would be nothing but the
+    original rows repeated five times.
     """
 
     all_examples = []
+
+    trajectory_id = 0
 
     engine_ids = (
         df["unit"]
@@ -219,6 +207,21 @@ def create_truncated_examples(
             truncated["RUL"] = (
                 total_cycles
                 - truncated["cycle"]
+            )
+
+            # ------------------------------------------------
+            # Identify the trajectory separately from the
+            # physical engine it was cut from.
+            # ------------------------------------------------
+
+            trajectory_id += 1
+
+            truncated["source_unit"] = (
+                unit
+            )
+
+            truncated["unit"] = (
+                trajectory_id
             )
 
             all_examples.append(
@@ -387,8 +390,18 @@ def main():
     )
 
     print(
-        f"Engines: "
+        f"Trajectories: "
         f"{truncated['unit'].nunique()}"
+    )
+
+    print(
+        f"Source engines: "
+        f"{truncated['source_unit'].nunique()}"
+    )
+
+    print(
+        f"Duplicate rows: "
+        f"{int(truncated.duplicated().sum())}"
     )
 
     print(

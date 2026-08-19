@@ -27,6 +27,10 @@ models/*.pt
 # Reports
 reports/*.json
 
+# Frontend
+node_modules/
+frontend/dist/
+
 # Logs
 *.log
 

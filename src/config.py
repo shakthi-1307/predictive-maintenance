@@ -19,19 +19,19 @@ TEST_FILE = RAW_DATA_DIR / "test_FD001.txt"
 RUL_FILE = RAW_DATA_DIR / "RUL_FD001.txt"
 
 
-RF_MODEL_PATH = MODEL_DIR / "random_forest.joblib"
-XGB_MODEL_PATH = MODEL_DIR / "xgboost.json"
-SCALER_PATH = MODEL_DIR / "scaler.joblib"
-LSTM_MODEL_PATH = MODEL_DIR / "lstm.pt"
+# These must match the filenames the training scripts write.
+RF_MODEL_PATH = MODEL_DIR / "random_forest_rul.joblib"
+XGB_MODEL_PATH = MODEL_DIR / "xgboost_rul.json"
+LSTM_MODEL_PATH = MODEL_DIR / "lstm_rul.pt"
+LSTM_SCALER_PATH = MODEL_DIR / "lstm_scaler.joblib"
 
+
+RUL_DATA_PATH = (
+    PROCESSED_DATA_DIR / "train_rul.csv"
+)
 
 FEATURE_DATA_PATH = (
     PROCESSED_DATA_DIR / "train_features.csv"
-)
-
-
-METRICS_PATH = (
-    METRIC_DIR / "model_metrics.json"
 )
 
 
@@ -73,6 +73,22 @@ DEFAULT_USEFUL_SENSORS = [
     "s17",
     "s20",
     "s21",
+]
+
+
+# Columns that identify a row rather than describe its condition.
+# These must never enter the feature matrix.
+#
+#   unit        -> id of a single truncated trajectory
+#   source_unit -> id of the physical engine the trajectory came from
+#
+# `source_unit` is what train/validation splits must group on, otherwise
+# truncations of the same engine leak across the split.
+NON_FEATURE_COLUMNS = [
+    "unit",
+    "source_unit",
+    "cycle",
+    "RUL",
 ]
 
 

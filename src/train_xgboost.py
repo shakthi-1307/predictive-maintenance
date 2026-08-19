@@ -18,6 +18,7 @@ from src.config import (
     MODEL_DIR,
     METRIC_DIR,
     RANDOM_STATE,
+    NON_FEATURE_COLUMNS,
     create_directories,
 )
 
@@ -40,11 +41,9 @@ METRICS_FILE = (
 
 TARGET = "RUL"
 
-EXCLUDED_COLUMNS = {
-    "unit",
-    "cycle",
-    "RUL",
-}
+EXCLUDED_COLUMNS = set(
+    NON_FEATURE_COLUMNS
+)
 
 
 def nasa_score(y_true, y_pred):
@@ -114,8 +113,10 @@ def split_by_engine(
     validation_fraction=0.2,
 ):
 
+    # Group on the physical engine, not the trajectory id, so that
+    # overlapping truncations of one engine cannot straddle the split.
     engines = (
-        df["unit"]
+        df["source_unit"]
         .unique()
     )
 
@@ -139,13 +140,13 @@ def split_by_engine(
     ]
 
     train_df = df[
-        df["unit"].isin(
+        df["source_unit"].isin(
             train_engines
         )
     ].copy()
 
     validation_df = df[
-        df["unit"].isin(
+        df["source_unit"].isin(
             validation_engines
         )
     ].copy()
