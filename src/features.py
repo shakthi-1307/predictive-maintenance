@@ -1,109 +1,228 @@
-import pandas as pd
 import numpy as np
+import pandas as pd
 
 from src.config import (
-    RAW_DATA_PATH,
-    FEATURE_DATA_PATH,
-    SENSOR_COLUMNS,
+    PROCESSED_DATA_DIR,
+    DEFAULT_USEFUL_SENSORS,
     create_directories,
 )
 
 
-def create_features(df: pd.DataFrame):
+WINDOWS = [5, 10, 20]
+
+
+def add_temporal_features(
+    df: pd.DataFrame,
+    sensors=None,
+):
+
+    if sensors is None:
+        sensors = DEFAULT_USEFUL_SENSORS
 
     df = df.copy()
 
-    # Always sort before time-series feature engineering.
+    # Always sort before creating
+    # time-series features.
     df = df.sort_values(
-        ["machine_id", "timestamp"]
+        ["unit", "cycle"]
     ).reset_index(drop=True)
 
-    grouped = df.groupby("machine_id")
+    grouped = df.groupby(
+        "unit",
+        group_keys=False,
+    )
 
-    feature_columns = []
+    for sensor in sensors:
 
-    for sensor in SENSOR_COLUMNS:
+        # --------------------------------------------------
+        # First-order difference
+        # --------------------------------------------------
 
-        # Rolling statistics
-        rolling_mean = (
-            grouped[sensor]
-            .rolling(window=12, min_periods=1)
-            .mean()
-            .reset_index(level=0, drop=True)
-        )
-
-        rolling_std = (
-            grouped[sensor]
-            .rolling(window=12, min_periods=1)
-            .std()
-            .reset_index(level=0, drop=True)
-            .fillna(0)
-        )
-
-        df[f"{sensor}_rolling_mean"] = rolling_mean
-        df[f"{sensor}_rolling_std"] = rolling_std
-
-        # Rate of change
         df[f"{sensor}_diff"] = (
             grouped[sensor]
             .diff()
             .fillna(0)
         )
 
-        feature_columns.extend(
-            [
-                f"{sensor}_rolling_mean",
-                f"{sensor}_rolling_std",
-                f"{sensor}_diff",
-            ]
-        )
+        # --------------------------------------------------
+        # Rolling statistics
+        # --------------------------------------------------
 
-    # Machine age interactions
-    df["age_temperature_interaction"] = (
-        df["machine_age"]
-        * df["temperature"]
+        for window in WINDOWS:
+
+            df[
+                f"{sensor}_rolling_mean_{window}"
+            ] = (
+                grouped[sensor]
+                .rolling(
+                    window=window,
+                    min_periods=1,
+                )
+                .mean()
+                .reset_index(
+                    level=0,
+                    drop=True,
+                )
+            )
+
+            df[
+                f"{sensor}_rolling_std_{window}"
+            ] = (
+                grouped[sensor]
+                .rolling(
+                    window=window,
+                    min_periods=1,
+                )
+                .std()
+                .reset_index(
+                    level=0,
+                    drop=True,
+                )
+                .fillna(0)
+            )
+
+    return df
+
+
+def add_cycle_features(df):
+
+    df = df.copy()
+
+    # Relative position in the engine's life.
+    max_cycle = (
+        df.groupby("unit")["cycle"]
+        .transform("max")
     )
 
-    df["vibration_torque_interaction"] = (
-        df["vibration"]
-        * df["torque"]
+    df["cycle_ratio"] = (
+        df["cycle"] / max_cycle
     )
 
-    feature_columns.extend(
-        [
-            "machine_age",
-            "age_temperature_interaction",
-            "vibration_torque_interaction",
-        ]
+    return df
+
+
+def add_degradation_features(df):
+
+    df = df.copy()
+
+    sensors = DEFAULT_USEFUL_SENSORS
+
+    # Cross-sensor relationships
+    # that may capture system-level degradation.
+
+    df["thermal_load"] = (
+        df["s4"]
+        * df["s15"]
     )
 
-    feature_columns.extend(SENSOR_COLUMNS)
+    df["mechanical_stress"] = (
+        df["s11"]
+        * df["s20"]
+    )
 
-    return df, feature_columns
+    df["pressure_ratio"] = (
+        df["s4"]
+        / (df["s3"] + 1e-8)
+    )
+
+    df["sensor_mean"] = (
+        df[sensors]
+        .mean(axis=1)
+    )
+
+    df["sensor_std"] = (
+        df[sensors]
+        .std(axis=1)
+    )
+
+    return df
 
 
-def main():
+def build_features():
 
     create_directories()
 
-    df = pd.read_csv(RAW_DATA_PATH)
+    input_path = (
+        PROCESSED_DATA_DIR
+        / "train_rul.csv"
+    )
 
-    df, feature_columns = create_features(df)
+    output_path = (
+        PROCESSED_DATA_DIR
+        / "train_features.csv"
+    )
 
-    df.to_csv(FEATURE_DATA_PATH, index=False)
+    df = pd.read_csv(
+        input_path
+    )
 
     print("=" * 60)
-    print("FEATURE ENGINEERING COMPLETE")
+    print("TEMPORAL FEATURE ENGINEERING")
     print("=" * 60)
-    print(f"Rows: {len(df):,}")
-    print(f"Features: {len(feature_columns)}")
 
-    print("\nFeature list:")
-    for feature in feature_columns:
-        print(f"  - {feature}")
+    print(
+        f"Input rows: {len(df):,}"
+    )
 
-    print(f"\nSaved to: {FEATURE_DATA_PATH}")
+    print(
+        f"Base sensors: "
+        f"{len(DEFAULT_USEFUL_SENSORS)}"
+    )
+
+    # 1. Temporal features
+    df = add_temporal_features(
+        df
+    )
+
+    # 2. Cycle features
+    df = add_cycle_features(
+        df
+    )
+
+    # 3. Cross-sensor features
+    df = add_degradation_features(
+        df
+    )
+
+    # Prevent accidental infinities.
+    df.replace(
+        [np.inf, -np.inf],
+        np.nan,
+        inplace=True,
+    )
+
+    # Fill any remaining missing
+    # values generated by rolling operations.
+    df.ffill(
+        inplace=True
+    )
+
+    df.bfill(
+        inplace=True
+    )
+
+    df.to_csv(
+        output_path,
+        index=False,
+    )
+
+    print(
+        f"\nOutput rows: "
+        f"{len(df):,}"
+    )
+
+    print(
+        f"Output columns: "
+        f"{len(df.columns)}"
+    )
+
+    print(
+        f"\nSaved to:\n{output_path}"
+    )
+
+    return df
 
 
 if __name__ == "__main__":
-    main()
+
+    build_features()
