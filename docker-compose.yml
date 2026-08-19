@@ -1,0 +1,10 @@
+services:
+
+  predictive-maintenance-api:
+    build: .
+    container_name: predictive-maintenance-api
+
+    ports:
+      - "8000:8000"
+
+    restart: unless-stopped
